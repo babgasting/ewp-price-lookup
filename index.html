@@ -11,7 +11,7 @@ main{max-width:980px;margin:0 auto;padding:12px}.card{background:#fff;border-rad
 table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}td,th{padding:5px 6px;border-top:1px solid #eef;text-align:left}td.n,th.n{text-align:right}tr.best td{background:#effbf3;font-weight:600}
 .panel{display:none}.panel.on{display:block}label{display:block;margin:6px 0 2px;font-size:13px;color:#445}input,select{padding:7px;border:1px solid #ccd;border-radius:6px;font-size:14px;width:100%}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.warn{font-size:12px;color:#8a5a00}.sub{font-size:13px;font-weight:600;margin-top:10px}
-</style></head><body>
+.rgs{margin-top:6px}.rg{display:flex;align-items:baseline;gap:8px;padding:3px 0}.lb{width:92px;font-size:12px;color:#5a6576;text-transform:uppercase;font-weight:600}.v{font-size:19px;font-weight:700;color:#0b6b3a}</style></head><body>
 <header><h1 style="display:flex;justify-content:space-between">EWP Budget Pricer <button id="gear" title="Settings" style="background:none;border:0;color:#fff;font-size:20px;cursor:pointer">⚙</button></h1><input id="q" placeholder="Search: 11-7/8 rfpi 400 · lvl 1-3/4x11-7/8 · glulam 5-1/2x12 · tji 210 14" autocomplete="off" autofocus>
 </header>
 <main>
@@ -19,8 +19,8 @@ table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}td,th{pa
 <div><label>Markup %</label><input id="markup" type="number" step="0.5"></div>
 <div><label>Freight $/LF adder</label><input id="freightLF" type="number" step="0.05"></div>
 <div><label>Freight % of base</label><input id="freightPct" type="number" step="0.5"></div>
-<div><label>Quantity (LF, optional)</label><input id="qty" type="number"></div><div><label>When several sources price an item, use</label><select id="basis"><option value="highest">Highest (default)</option><option value="average">Average</option><option value="lowest">Lowest</option></select></div></div>
-<p class="s">Budget $/LF = (base + freight $/LF + base×freight%) × (1 + markup%). Both freight fields stack; set one to 0 to use the other.</p><button class="btn" id="reset">Reset defaults</button></div>
+<div><label>Quantity (LF, optional)</label><input id="qty" type="number"></div><div><label>Small order: extra freight $/LF</label><input id="smallLF" type="number" step="0.05"></div><div><label>Small order: extra markup %</label><input id="smallMk" type="number" step="0.5"></div></div>
+<p class="s">LOW = lowest source price + freight (no markup). HIGH = highest source price + freight, × (1 + markup). SMALL ORDER = same calc + small-order extra freight, × (1 + small-order extra markup%) on low; high gets markup + small-order markup. Freight $/LF and freight % stack.</p><button class="btn" id="reset">Reset defaults</button></div>
 <div id="admin" class="panel card"><div class="t">Admin</div>
 <div class="grid"><div><label>Category</label><select id="f_category"><option>I-Joist</option><option>LVL</option><option>Glulam</option><option>Rimboard</option><option>Scaffold Plank</option><option>Other</option></select></div>
 <div><label>Product line (e.g. RFPI, TJI, BCI, LVL 2.0E)</label><input id="f_line"></div><div><label>Series / grade</label><input id="f_series"></div>
@@ -2580,7 +2580,10 @@ function matches(it,p){
  return true;}
 function search(items,q){const p=parseQuery(q);if(!p.words.length&&!p.nums.length)return [];return items.filter(it=>matches(it,p));}
 function budget(base,s){if(base==null)return null;const fr=(+s.freightLF||0)+base*(+s.freightPct||0)/100;return (base+fr)*(1+(+s.markup||0)/100);}
-function compareKey(it){const c=it.category;if(c=='I-Joist')return c+'|'+it.line+' '+it.series+'|'+it.d;if(c=='Glulam')return c+'|'+it.line+'|'+it.w+'x'+it.d;return c+'|'+it.w+'x'+it.d;}
+function compareKey(it){const c=it.category;if(c=='I-Joist')return c+'|'+it.line+' '+it.series+'|'+it.d;if(c=='Glulam')return c+'|'+it.line+'|'+it.w+'x'+it.d;return c+'|'+(c=='LVL'?it.series+'|':'')+it.w+'x'+it.d;}
+function range(ps,s,mode){ps=ps.filter(p=>p!=null&&!isNaN(p));if(!ps.length)return null;const sm=mode=='small';
+ const fr=p=>(+s.freightLF||0)+(sm?(+s.smallLF||0):0)+p*(+s.freightPct||0)/100,xm=sm?(+s.smallMk||0)/100:0;
+ const lo=Math.min(...ps),hi=Math.max(...ps);return {low:(lo+fr(lo))*(1+xm),high:(hi+fr(hi))*(1+(+s.markup||0)/100+xm)};}
 function isStale(it,today){return it.eff_thru?it.eff_thru<today:false;}
 // ---- prediction ----
 function familyOf(items,p){ // candidate same-line items for a query with no exact hit
@@ -2614,13 +2617,13 @@ function predict(items,q){const p=parseQuery(q);let w,d;
   const ws=arr.map(a=>a.w);if(w<Math.min(...ws)-.01||w>Math.max(...ws)+.01)continue;const r=predictLine(arr,w,d,false);if(r)out.push({...r,line:k,w,d,sample:arr[0]});}
  return out;}
 
-const $=id=>document.getElementById(id),LS='ewpPricer.';const DEF={markup:10,freightLF:0.25,freightPct:0,qty:'',basis:'highest'};
+const $=id=>document.getElementById(id),LS='ewpPricer.';const DEF={markup:10,freightLF:0.25,freightPct:0,qty:'',smallLF:0.35,smallMk:5};
 let S=Object.assign({},DEF,JSON.parse(localStorage.getItem(LS+'settings')||'{}'));
 let ITEMS=JSON.parse(localStorage.getItem(LS+'items')||'null')||BUILTIN.map(x=>({...x}));ITEMS.forEach(prep);
 const TODAY=new Date().toISOString().slice(0,10);
 function persist(){localStorage.setItem(LS+'items',JSON.stringify(ITEMS.map(({w,d,text,...r})=>r)));}
-['markup','freightLF','freightPct','qty','basis'].forEach(k=>{$(k).value=S[k];$(k).oninput=()=>{S[k]=$(k).value;localStorage.setItem(LS+'settings',JSON.stringify(S));render()}});
-$('reset').onclick=()=>{S={...DEF};localStorage.setItem(LS+'settings',JSON.stringify(S));['markup','freightLF','freightPct','qty','basis'].forEach(k=>$(k).value=S[k]);render()};
+['markup','freightLF','freightPct','qty','smallLF','smallMk'].forEach(k=>{$(k).value=S[k];$(k).oninput=()=>{S[k]=$(k).value;localStorage.setItem(LS+'settings',JSON.stringify(S));render()}});
+$('reset').onclick=()=>{S={...DEF};localStorage.setItem(LS+'settings',JSON.stringify(S));['markup','freightLF','freightPct','qty','smallLF','smallMk'].forEach(k=>$(k).value=S[k]);render()};
 $('gear').onclick=()=>{const on=!$('settings').classList.contains('on');$('settings').classList.toggle('on',on);$('admin').classList.toggle('on',on)};
 const m=v=>v==null||isNaN(v)?'—':'$'+(+v).toFixed(2);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -2629,34 +2632,35 @@ function title(it){return it.category=='I-Joist'?it.line+' '+it.series+' '+fmtIn
 function ext(b){return S.qty>0&&b!=null?' · ext '+m(b*S.qty):''}
 function badges(it){let s='';if(isStale(it,TODAY))s+='<span class="badge stale">STALE – expired '+it.eff_thru+'</span>';else if(!it.eff_thru)s+='<span class="badge np">no end date</span>';return s}
 function agg(ps){ps=ps.filter(p=>p!=null&&!isNaN(p));if(!ps.length)return null;return S.basis=='lowest'?Math.min(...ps):S.basis=='average'?ps.reduce((x,y)=>x+y)/ps.length:Math.max(...ps)}
-function line1(name,base,est){const b=budget(base,S);return '<tr><td>'+esc(name)+(est?' <span class="badge est">EST.</span>':'')+'</td><td class="n">'+(base==null?'<span class="badge np">no price yet</span>':m(b)+'<span class="s">/LF</span>'+ext(b))+'</td></tr>'}
-function groupAgg(list,nameFn){const g={};list.forEach(o=>(g[compareKey(o)]??=[]).push(o));return Object.values(g).map(arr=>({name:nameFn(arr[0]),base:agg(arr.map(x=>x.price))})).sort((x,y)=>(x.base??1e9)-(y.base??1e9))}
+function line1(name,ps,est){const sm=range(ps,S,'reg'),bk=range(ps,S,'small');return '<tr><td>'+esc(name)+(est?' <span class="badge est">EST.</span>':'')+'</td><td class="n">'+(!sm?'<span class="badge np">no price yet</span>':m(sm.high)+' <span class="s">sm</span> '+m(bk.high))+'</td></tr>'}
+function groupAgg(list,nameFn){const g={};list.forEach(o=>(g[compareKey(o)]??=[]).push(o));return Object.values(g).map(arr=>({name:nameFn(arr[0]),ps:arr.map(x=>x.price),base:agg(arr.map(x=>x.price))})).sort((x,y)=>(x.base??1e9)-(y.base??1e9))}
 function altTable(rows,label,warn){if(!rows.length)return'';return '<div class="sub">'+label+'</div>'+(warn?'<div class="warn">'+warn+'</div>':'')+'<table>'+rows.join('')+'</table>'}
 function alternates(it){let h='';
  if(it.category=='I-Joist'){const a=ALT[it.series];
   if(a){const rows=a.alts.map(c=>{const [l,sr]=c.split(' ');const f=ITEMS.filter(o=>o.line.toUpperCase()==l&&o.series==sr&&Math.abs(o.d-it.d)<.01);const nm=c+' '+fmtIn(it.d)+'"';
-    return f.length?line1(nm,agg(f.map(x=>x.price))):'<tr><td>'+esc(nm)+'</td><td class="n"><span class="badge np">no price yet</span> <button class="btn" onclick="addComp(\''+l+'\',\''+sr+'\',\''+fmtIn(it.d)+'\')">+ add</button></td></tr>'});
-   h+=altTable(rows,'Equivalent joists','Approximate equivalents — verify spans with the manufacturer.')}
+    return f.length?line1(nm,f.map(x=>x.price)):'<tr><td>'+esc(nm)+'</td><td class="n"><span class="badge np">no price yet</span> <button class="btn" onclick="addComp(\''+l+'\',\''+sr+'\',\''+fmtIn(it.d)+'\')">+ add</button></td></tr>'});
+   h+=altTable(rows,'Equivalent joists <span class="s">(high · sm = small order)</span>','Approximate equivalents — verify spans with the manufacturer.')}
   const rf=ITEMS.filter(o=>o.category=='I-Joist'&&o.line=='RFPI'&&Math.abs(o.d-it.d)<.01&&o.series!=it.series);
-  h+=altTable(groupAgg(rf,title).map(r=>line1(r.name,r.base)),'Other RFPI series, same depth');}
+  h+=altTable(groupAgg(rf,title).map(r=>line1(r.name,r.ps)),'Other RFPI series, same depth <span class="s">(high)</span>');}
  else if(it.category=='LVL'||it.category=='Glulam'){const al=ITEMS.filter(o=>(o.category=='LVL'||o.category=='Glulam')&&Math.abs(o.w-it.w)<.3&&Math.abs(o.d-it.d)<.01&&compareKey(o)!=compareKey(it));
-  h+=altTable(groupAgg(al,title).map(r=>line1(r.name,r.base)),'Beam alternates, same size');}
+  h+=altTable(groupAgg(al,title).map(r=>line1(r.name,r.ps)),'Beam alternates, same size <span class="s">(high)</span>');}
  return h}
 window.addComp=(l,s,d)=>{$('admin').classList.add('on');$('settings').classList.add('on');clearForm();$('f_category').value='I-Joist';$('f_line').value=l;$('f_series').value=s;$('f_depth').value=d;$('f_price').focus();scrollTo(0,0)};
-function head(name,base,est,extra,sub){const b=budget(base,S);return '<div class="row"><div><div class="t">'+esc(name)+(est?' <span class="badge est">EST.</span>':'')+(extra||'')+'</div>'+(sub?'<div class="s">'+sub+'</div>':'')+'</div><div class="price"><div class="big">'+m(b)+'<span class="s">/LF</span></div>'+(S.qty>0&&b!=null?'<div class="base">'+m(b*S.qty)+' for '+S.qty+' LF</div>':'')+'</div></div>'}
+function rr(lbl,r){if(!r)return '<div class="rg"><span class="lb">'+lbl+'</span><span class="badge np">no price yet</span></div>';const q=S.qty>0?'<span class="s"> · '+m(r.low*S.qty)+'–'+m(r.high*S.qty)+'</span>':'';return '<div class="rg"><span class="lb">'+lbl+'</span><span class="v">'+m(r.low)+' – '+m(r.high)+'</span><span class="s">/LF</span>'+q+'</div>'}
+function head(name,ps,est,extra,sub){ps=[].concat(ps);return '<div class="t">'+esc(name)+(est?' <span class="badge est">EST.</span>':'')+(extra||'')+'</div>'+(sub?'<div class="s">'+sub+'</div>':'')+'<div class="rgs">'+rr('Price',range(ps,S,'reg'))+rr('Small order',range(ps,S,'small'))+'</div>'}
 function card(group){const it=group[0],stale=group.some(g=>isStale(g,TODAY));
- return '<div class="card">'+head(title(it),agg(group.map(g=>g.price)),false,stale?'<span class="badge stale">STALE</span>':'',esc(size(it))+(it.unit?' · unit '+it.unit:''))+alternates(it)
+ return '<div class="card">'+head(title(it),group.map(g=>g.price),false,stale?'<span class="badge stale">STALE</span>':'',esc(size(it))+(it.unit?' · unit '+it.unit:''))+alternates(it)
  +'<div style="margin-top:4px">'+group.map((g,i)=>'<a href="#" class="s" onclick="editItem(\''+g.id+'\');return false">edit'+(group.length>1?' '+(i+1):'')+'</a> ').join('')+'</div></div>'}
 function estCards(list){const g={};list.forEach(e=>{const k=e.sample.line+(e.sample.category=='I-Joist'?' '+e.sample.series:'');(g[k]??=[]).push(e)});
  return Object.entries(g).map(([k,arr])=>{const e=arr[0],nm=e.sample.category=='I-Joist'?k+' '+fmtIn(e.d)+'"':k+' '+fmtIn(e.w)+'x'+fmtIn(e.d);const refs=[...new Set(arr.flatMap(x=>x.refs).map(r=>title(r)))];
-  return '<div class="card" style="border:2px dashed #e0b400">'+head(nm,agg(arr.map(x=>x.price)),true,arr.some(x=>x.extrap)?'<span class="badge stale">extrapolated</span>':'','Estimated from: '+esc(refs.join(', ')))+'</div>'}).join('')}
+  return '<div class="card" style="border:2px dashed #e0b400">'+head(nm,arr.map(x=>x.price),true,arr.some(x=>x.extrap)?'<span class="badge stale">extrapolated</span>':'','Estimated from: '+esc(refs.join(', ')))+'</div>'}).join('')}
 function render(){const q=$('q').value.trim();let res=q=='*'?ITEMS:search(ITEMS,q);const out=$('out');
- if(!q){out.innerHTML='<div class="card s">Type a product above, e.g. "rfpi 400 11-7/8", "lvl 3-1/2x11-7/8", "glulam 5-1/2x12". Prices are budget $/LF incl. freight &amp; markup.</div>';return}
+ if(!q){out.innerHTML='<div class="card s">Type a product above, e.g. "rfpi 400 11-7/8", "lvl 3-1/2x11-7/8", "glulam 5-1/2x12". Ranges are $/LF incl. freight: low = best sheet price, no markup; high = top sheet price + markup.</div>';return}
  const g={};res.forEach(it=>(g[compareKey(it)]??=[]).push(it));let html=Object.values(g).slice(0,60).map(card).join('');
  const p=parseQuery(q),comp=p.words.find(w=>COMP.includes(w));
  if(comp&&q!='*'&&!res.length){const ser=p.nums.find(n=>Object.values(ALT).some(a=>a.alts.includes(comp.toUpperCase()+' '+n)));const name=comp.toUpperCase()+(ser?' '+ser:'');const rf=ser?rfpiFor(name):[];
   const dep=p.nums.find(n=>n!==ser);const eq=ITEMS.filter(o=>o.line=='RFPI'&&rf.includes(o.series)&&(dep==null||Math.abs(o.d-dep)<.01));
-  html='<div class="card">'+head(name+(dep?' '+fmtIn(dep)+'"':''),null,false,' <span class="badge np">no price yet</span>','<button class="btn" onclick="addComp(\''+comp.toUpperCase()+'\',\''+(ser||'')+'\',\''+(dep?fmtIn(dep):'')+'\')">+ add price</button>')+altTable(groupAgg(eq,title).map(r=>line1(r.name,r.base)),'Equivalent RFPI','Approximate equivalents — verify spans with the manufacturer.')+'</div>'+html}
+  html='<div class="card">'+head(name+(dep?' '+fmtIn(dep)+'"':''),[],false,' <span class="badge np">no price yet</span>','<button class="btn" onclick="addComp(\''+comp.toUpperCase()+'\',\''+(ser||'')+'\',\''+(dep?fmtIn(dep):'')+'\')">+ add price</button>')+altTable(groupAgg(eq,title).map(r=>line1(r.name,r.ps)),'Equivalent RFPI','Approximate equivalents — verify spans with the manufacturer.')+'</div>'+html}
  if(!res.length&&!comp){const est=predict(ITEMS,q);html+=est.length?estCards(est):'<div class="card s">No match. Try e.g. "lvl 3-1/2x11-7/8" or "rfpi 40 14".</div>'}
  out.innerHTML=html}
 $('q').oninput=render;
